@@ -1,0 +1,125 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        UPDATE task_specs SET\n            name             = $1,\n            spec_type        = $2,\n            cron_expr        = $3,\n            interval_seconds = $4,\n            run_at           = $5,\n            timezone         = $6,\n            target_id        = $7,\n            payload          = $8,\n            status           = $9,\n            catch_up         = $10,\n            max_attempts     = $11,\n            next_run         = $12,\n            version          = version + 1\n        WHERE id = $13 AND version = $14\n        RETURNING\n            id, name,\n            spec_type      AS \"spec_type: SpecType\",\n            cron_expr,\n            interval_seconds,\n            run_at,\n            timezone,\n            target_id,\n            payload,\n            status         AS \"status: SpecStatus\",\n            catch_up       AS \"catch_up: CatchUpPolicy\",\n            max_attempts,\n            next_run,\n            created_at,\n            updated_at,\n            version\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "spec_type: SpecType",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "cron_expr",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "interval_seconds",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "run_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "timezone",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "target_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "payload",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "status: SpecStatus",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "catch_up: CatchUpPolicy",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "max_attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "next_run",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "version",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Text",
+        "Text",
+        "Text",
+        "Int8",
+        "Timestamptz",
+        "Text",
+        "Uuid",
+        "Jsonb",
+        "Text",
+        "Text",
+        "Int4",
+        "Timestamptz",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "81151e692678e3a49c64b3927b7d2de53f64c7e52db592cc2f7ac80ce78c0aad"
+}

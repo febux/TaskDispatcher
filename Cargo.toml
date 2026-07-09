@@ -1,0 +1,70 @@
+[package]
+name = "taskmanager"
+version = "0.1.0"
+edition = "2024"
+description = "Reliable cron-to-notification dispatcher"
+publish = false
+
+[lib]
+name = "taskmanager"
+path = "src/lib.rs"
+
+[[bin]]
+name = "taskmanager"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { version = "1", features = ["full"] }
+axum = "0.7"
+tower = "0.5"
+tower-http = { version = "0.6", features = ["trace"] }
+
+sqlx = { version = "0.8", default-features = false, features = [
+    "runtime-tokio-rustls",
+    "postgres",
+    "macros",
+    "migrate",
+    "uuid",
+    "chrono",
+    "json",
+] }
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "rustls-tls",
+] }
+
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# URL validation for target endpoints.
+url = "2"
+
+# Phase 1: domain types + scheduling seed.
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", default-features = false, features = [
+    "clock",
+    "std",
+    "serde",
+] }
+chrono-tz = "0.10"
+cron = "0.13"
+
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+
+thiserror = "1"
+anyhow = "1"
+
+dotenvy = "0.15"
+
+[dev-dependencies]
+tokio = { version = "1", features = ["full", "test-util"] }
+tower = { version = "0.5", features = ["util"] }
+http-body-util = "0.1"
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true

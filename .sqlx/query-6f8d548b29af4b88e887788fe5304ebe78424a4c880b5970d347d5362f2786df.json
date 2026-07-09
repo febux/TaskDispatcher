@@ -1,0 +1,113 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n                SELECT\n                    id, name,\n                    spec_type      AS \"spec_type: SpecType\",\n                    cron_expr,\n                    interval_seconds,\n                    run_at,\n                    timezone,\n                    target_id,\n                    payload,\n                    status         AS \"status: SpecStatus\",\n                    catch_up       AS \"catch_up: CatchUpPolicy\",\n                    max_attempts,\n                    next_run,\n                    created_at,\n                    updated_at,\n                    version\n                FROM task_specs\n                ORDER BY next_run ASC NULLS LAST, created_at DESC\n                LIMIT $1 OFFSET $2\n                ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "name",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "spec_type: SpecType",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 3,
+        "name": "cron_expr",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "interval_seconds",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 5,
+        "name": "run_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 6,
+        "name": "timezone",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "target_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 8,
+        "name": "payload",
+        "type_info": "Jsonb"
+      },
+      {
+        "ordinal": 9,
+        "name": "status: SpecStatus",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 10,
+        "name": "catch_up: CatchUpPolicy",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 11,
+        "name": "max_attempts",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 12,
+        "name": "next_run",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 13,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 14,
+        "name": "updated_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 15,
+        "name": "version",
+        "type_info": "Int4"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int8",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false,
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      false,
+      false,
+      false
+    ]
+  },
+  "hash": "6f8d548b29af4b88e887788fe5304ebe78424a4c880b5970d347d5362f2786df"
+}

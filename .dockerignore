@@ -1,0 +1,20 @@
+# Build artifacts
+target/
+
+# Local env / editor cruft
+.env
+.git
+.gitignore
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Docker artifacts
+Dockerfile
+.dockerignore
+docker-compose.yml
+
+# Docs don't ship to runtime
+README.md
+DESIGN.md

@@ -1,0 +1,22 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "SELECT EXISTS(SELECT 1 FROM targets WHERE id = $1) AS exists_",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "exists_",
+        "type_info": "Bool"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "0ed729b854fd489619e5ee2ad94029f88759645a7201aa51945c6c7c0334b7c0"
+}
