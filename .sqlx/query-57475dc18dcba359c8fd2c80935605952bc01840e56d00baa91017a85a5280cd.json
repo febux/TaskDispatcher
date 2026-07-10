@@ -1,0 +1,52 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT\n            target_id, status AS \"status: HealthStatus\",\n            status_code, error, checked_at, changed_at\n        FROM service_health\n        WHERE target_id = $1\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "target_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "status: HealthStatus",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "status_code",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "checked_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "changed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "57475dc18dcba359c8fd2c80935605952bc01840e56d00baa91017a85a5280cd"
+}

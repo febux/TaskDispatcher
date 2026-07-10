@@ -1,6 +1,6 @@
 [package]
 name = "taskmanager"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 description = "Reliable cron-to-notification dispatcher"
 publish = false
@@ -12,6 +12,10 @@ path = "src/lib.rs"
 [[bin]]
 name = "taskmanager"
 path = "src/main.rs"
+
+[[bin]]
+name = "taskmanager-healthchecker"
+path = "src/bin/healthchecker.rs"
 
 [dependencies]
 tokio = { version = "1", features = ["full"] }
@@ -35,11 +39,23 @@ reqwest = { version = "0.12", default-features = false, features = [
     "rustls-tls",
 ] }
 
+# Phase 2: object-safe async trait for transports + graceful shutdown token.
+async-trait = "0.1"
+tokio-util = "0.7"
+# Phase 2: retry backoff jitter (already a transitive dep).
+rand = "0.8"
+
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 
 # URL validation for target endpoints.
 url = "2"
+
+# Phase 4: Prometheus metrics + webhook HMAC signing + payload templating.
+prometheus = "0.13"
+hmac = "0.12"
+sha2 = "0.10"
+hex = "0.4"
 
 # Phase 1: domain types + scheduling seed.
 uuid = { version = "1", features = ["v4", "serde"] }
@@ -63,6 +79,10 @@ dotenvy = "0.15"
 tokio = { version = "1", features = ["full", "test-util"] }
 tower = { version = "0.5", features = ["util"] }
 http-body-util = "0.1"
+# Phase 2: in-test mock webhook server.
+hyper = { version = "1", features = ["server", "http1"] }
+hyper-util = { version = "0.1", features = ["tokio"] }
+bytes = "1"
 
 [profile.release]
 opt-level = 3

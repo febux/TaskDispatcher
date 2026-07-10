@@ -17,7 +17,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::models::{CatchUpPolicy, SpecStatus, SpecType, TaskSpec};
+use crate::models::{CatchUpPolicy, SpecStatus, SpecType, TaskExecution, TaskSpec};
 use crate::routes::pagination::Pagination;
 use crate::schedule;
 use crate::state::AppState;
@@ -35,6 +35,7 @@ pub fn router() -> Router<AppState> {
         )
         .route("/v1/specs/:id/pause", axum::routing::post(pause))
         .route("/v1/specs/:id/resume", axum::routing::post(resume))
+        .route("/v1/specs/:id/executions", axum::routing::get(executions))
 }
 
 // ---------------------------------------------------------------------------
@@ -128,6 +129,9 @@ async fn create(
     .await?;
 
     let spec = storage::specs::insert(&state.pg, &row).await?;
+    // Hot-reload (DESIGN §2.3): mutating the spec IS the reload — push the
+    // derived ZSET change so the scheduler sees it without a restart.
+    reflect_schedule(&state, &spec).await;
     Ok((StatusCode::CREATED, Json(spec)).into_response())
 }
 
@@ -143,6 +147,19 @@ async fn list(
     let (limit, offset) = q.page.bounds()?;
     let specs = storage::specs::list(&state.pg, q.status, limit, offset).await?;
     Ok(Json(specs))
+}
+
+/// Per-spec delivery-attempt history (Phase 3, DESIGN §3) — newest-first.
+async fn executions(
+    State(state): State<AppState>,
+    Path(id): Path<Uuid>,
+    Query(page): Query<Pagination>,
+) -> AppResult<Json<Vec<TaskExecution>>> {
+    // 404 if the spec doesn't exist, rather than an empty-but-200 history.
+    let _ = storage::specs::get(&state.pg, id).await?;
+    let (limit, offset) = page.bounds()?;
+    let rows = storage::executions::list_for_spec(&state.pg, id, limit, offset).await?;
+    Ok(Json(rows))
 }
 
 async fn update(
@@ -214,6 +231,7 @@ async fn update(
             vq.version
         )))?;
 
+    reflect_schedule(&state, &updated).await;
     Ok((StatusCode::OK, Json(updated)).into_response())
 }
 
@@ -223,6 +241,12 @@ async fn delete(
 ) -> AppResult<StatusCode> {
     if !storage::specs::delete(&state.pg, id).await? {
         return Err(AppError::NotFound(format!("spec {id} not found")));
+    }
+    // Best-effort removal from the derived schedule. SQL is already the source
+    // of truth (row gone), so a Redis hiccup here just leaves a stale entry
+    // that the next claim treats as `Unmappable` and drops.
+    if let Err(e) = storage::redis::schedule_remove(&state.redis, id).await {
+        tracing::warn!(spec = %id, error = %e, "failed to remove deleted spec from Redis schedule");
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -276,6 +300,7 @@ async fn transition_status(
             "spec {id} not found or version {expected_version} is stale"
         )))?;
 
+    reflect_schedule(state, &updated).await;
     Ok((StatusCode::OK, Json(updated)).into_response())
 }
 
@@ -415,4 +440,24 @@ fn validate_timezone(tz: &str) -> AppResult<()> {
     tz.parse::<chrono_tz::Tz>()
         .map_err(|_| AppError::Validation(format!("invalid timezone {tz:?}")))?;
     Ok(())
+}
+
+/// Mirror a spec mutation into the derived Redis schedule (hot-reload,
+/// DESIGN §2.3). Active specs with a seed are upserted; everything else
+/// (paused, spent one-shot) is removed. Redis is *derived* — a failure here
+/// is logged, not surfaced, so SQL (source of truth) writes never roll back.
+async fn reflect_schedule(state: &AppState, spec: &TaskSpec) {
+    let res = match (spec.status, spec.next_run) {
+        (SpecStatus::Active, Some(nr)) => {
+            storage::redis::schedule_upsert(&state.redis, spec.id, nr).await
+        }
+        _ => storage::redis::schedule_remove(&state.redis, spec.id).await,
+    };
+    if let Err(e) = res {
+        tracing::warn!(
+            spec = %spec.id,
+            error = %e,
+            "failed to mirror spec mutation to Redis schedule"
+        );
+    }
 }

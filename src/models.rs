@@ -21,6 +21,12 @@ pub struct Target {
     #[serde(skip_serializing)]
     pub secret_hmac: Option<String>,
     pub headers: serde_json::Value,
+    /// Optional healthcheck endpoint for the external service (extension).
+    pub healthcheck_url: Option<String>,
+    /// How often the healthchecker polls `healthcheck_url` (seconds).
+    pub healthcheck_interval_seconds: i32,
+    /// Per-healthcheck request timeout (seconds).
+    pub healthcheck_timeout_seconds: i32,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
@@ -79,4 +85,73 @@ pub struct TaskSpec {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub version: i32,
+}
+
+/// Outcome of a single delivery attempt, recorded in `task_executions`
+/// (Phase 3, DESIGN §3). Maps 1:1 to `SendResult` variants — the audit trail
+/// behind "what happened on each try".
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+#[sqlx(type_name = "TEXT", rename_all = "lowercase")]
+pub enum ExecutionStatus {
+    /// The handler accepted the fire (2xx).
+    Delivered,
+    /// Transient failure (5xx / timeout / connect) — retried with backoff.
+    Retryable,
+    /// Permanent failure (4xx other than 408/429) — not retried.
+    Terminal,
+}
+
+/// One row per delivery attempt — the "why did it fail on Tuesday" table
+/// (DESIGN §3). Written best-effort by the scheduler on every transport
+/// outcome. `scheduled_fire_time` is stable across retries of the same
+/// logical fire, so it groups an attempt chain together.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct TaskExecution {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub scheduled_fire_time: DateTime<Utc>,
+    pub attempt: i32,
+    pub status: ExecutionStatus,
+    pub latency_ms: Option<i32>,
+    pub response_code: Option<i32>,
+    pub error: Option<String>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// A dead-lettered logical fire — the audit trail of "we gave up" (DESIGN §3).
+/// Written once when retries exhaust or a terminal failure occurs, in
+/// addition to the per-attempt `TaskExecution` rows for the same fire.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct DeadLetterEntry {
+    pub id: Uuid,
+    pub task_id: Uuid,
+    pub scheduled_fire_time: DateTime<Utc>,
+    pub attempts: i32,
+    pub last_error: Option<String>,
+    pub last_response_code: Option<i32>,
+    pub created_at: DateTime<Utc>,
+}
+
+/// Latest health status of a target's external service, as polled by the
+/// separate `healthchecker` service (extension).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+#[sqlx(type_name = "TEXT", rename_all = "lowercase")]
+pub enum HealthStatus {
+    Healthy,
+    Unhealthy,
+    /// No healthcheck has completed yet (or target has no healthcheck URL).
+    Unknown,
+}
+
+/// Row in `service_health`, updated by the healthchecker.
+#[derive(Debug, Clone, Serialize, sqlx::FromRow)]
+pub struct ServiceHealth {
+    pub target_id: Uuid,
+    pub status: HealthStatus,
+    pub status_code: Option<i32>,
+    pub error: Option<String>,
+    pub checked_at: DateTime<Utc>,
+    pub changed_at: DateTime<Utc>,
 }

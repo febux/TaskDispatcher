@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "UPDATE task_specs SET next_run = $1 WHERE id = $2 AND version = $3",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Timestamptz",
+        "Uuid",
+        "Int4"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "f47b2bbcb7f2860af01dfa210a3d8c4928b043ddf37815de091cab703e428b48"
+}

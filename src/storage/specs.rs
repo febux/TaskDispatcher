@@ -287,6 +287,48 @@ pub async fn delete(pool: &PgPool, id: Uuid) -> AppResult<bool> {
     Ok(affected > 0)
 }
 
+/// Every active spec that carries a `next_run` seed — the source for the
+/// Redis ZSET rebuild at boot (DESIGN §2.1: "if Redis evaporates, rebuild it
+/// from SQL in one pass"). Ordered for deterministic seeding.
+pub async fn list_active_next_runs(pool: &PgPool) -> AppResult<Vec<(Uuid, Option<DateTime<Utc>>)>> {
+    let rows = sqlx::query!(
+        r#"
+        SELECT id, next_run
+        FROM task_specs
+        WHERE status = 'active' AND next_run IS NOT NULL
+        ORDER BY next_run ASC
+        "#,
+    )
+    .fetch_all(pool)
+    .await?;
+    Ok(rows.into_iter().map(|r| (r.id, r.next_run)).collect())
+}
+
+/// Scheduler re-seed of `next_run` after a successful fire (DESIGN §2.2).
+///
+/// Gated on `version`: if a user PATCH changed the spec in flight, the
+/// scheduler's stale write is skipped (the PATCH already set the right
+/// `next_run`). We intentionally do NOT bump `version` here — scheduler
+/// writes must not break concurrent user optimistic-concurrency. The
+/// `updated_at` trigger still fires. Returns `true` if the row was updated.
+pub async fn set_next_run(
+    pool: &PgPool,
+    id: Uuid,
+    expected_version: i32,
+    next_run: Option<DateTime<Utc>>,
+) -> AppResult<bool> {
+    let affected = sqlx::query!(
+        "UPDATE task_specs SET next_run = $1 WHERE id = $2 AND version = $3",
+        next_run,
+        id,
+        expected_version,
+    )
+    .execute(pool)
+    .await?
+    .rows_affected();
+    Ok(affected > 0)
+}
+
 /// The full, validated field set of a spec row, ready to INSERT or to
 /// overwrite an existing row on UPDATE. Built by the route layer after
 /// validation and `next_run` computation.

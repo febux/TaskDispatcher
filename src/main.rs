@@ -1,7 +1,9 @@
 use anyhow::Result;
+use tokio_util::sync::CancellationToken;
 use tracing::Instrument;
 
-use taskmanager::{AppState, Config, init_tracing, storage};
+use taskmanager::{AppState, Config, Metrics, Scheduler, SchedulerHealth, init_tracing, storage};
+use taskmanager::Registry;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -27,9 +29,15 @@ async fn main() -> Result<()> {
 
     storage::postgres::migrate(&pg).await?;
 
+    // Phase 4: shared observability + scheduler health state.
+    let metrics = Metrics::new();
+    let scheduler_health = SchedulerHealth::new(config.scheduler.tick_interval);
+
     let state = AppState {
         pg: pg.clone(),
-        redis,
+        redis: redis.clone(),
+        scheduler_health: scheduler_health.clone(),
+        metrics: metrics.clone(),
     };
 
     // Background connectivity sanity-check; logged once at boot.
@@ -45,21 +53,52 @@ async fn main() -> Result<()> {
         ),
     }
 
+    // Shared shutdown signal (DESIGN §3): one token fans out to axum's
+    // graceful-shutdown future and the scheduler's drain.
+    let shutdown = CancellationToken::new();
+    {
+        let s = shutdown.clone();
+        tokio::spawn(async move {
+            wait_for_signal().await;
+            s.cancel();
+        });
+    }
+
+    // Scheduler (DESIGN §2.2): one background task owning the ZSET claim loop
+    // + delivery. Metrics and health are shared with the HTTP layer (Phase 4).
+    let scheduler = Scheduler::new(
+        config.scheduler.clone(),
+        pg.clone(),
+        redis.clone(),
+        Registry::v1(config.scheduler.http_timeout),
+        scheduler_health,
+        metrics,
+    );
+    let scheduler_handle =
+        tokio::spawn(scheduler.run(shutdown.clone()).instrument(tracing::info_span!("scheduler")));
+
     let app = taskmanager::app_router(state);
     let listener = tokio::net::TcpListener::bind(&config.listen_addr).await?;
     tracing::info!(addr = %config.listen_addr, "listening");
 
+    // axum drains in-flight HTTP on shutdown; the scheduler drains in-flight
+    // fires. Both react to the same cancellation token.
     axum::serve(listener, app.into_make_service())
-        .with_graceful_shutdown(shutdown_signal())
+        .with_graceful_shutdown(async move { shutdown.cancelled().await })
         .await?;
+
+    tracing::info!("http server drained; awaiting scheduler drain");
+    // The scheduler task returns once its JoinSet is drained (bounded by
+    // `shutdown_timeout`).
+    let _ = scheduler_handle.await;
 
     tracing::info!("shutdown complete");
     Ok(())
 }
 
-/// Wait for SIGINT / SIGTERM. The scheduler drain (Phase 4) will hook here
-/// via a `CancellationToken` shared with the scheduler task.
-async fn shutdown_signal() {
+/// Wait for SIGINT / SIGTERM. On receipt the caller cancels the shared
+/// `CancellationToken`, which triggers axum + scheduler shutdown (DESIGN §3).
+async fn wait_for_signal() {
     let ctrl_c = async {
         tokio::signal::ctrl_c()
             .await

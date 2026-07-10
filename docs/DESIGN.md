@@ -52,12 +52,13 @@ scheduler/deliverer boundary holds.
    ┌────────────────────────────────────────────────────────┐
    │  Scheduler task (tokio task, same binary)              │
    │  loop {                                                │
-   │    let due = ZRANGEBYSCORE schedule 0 now LIMIT 100    │
-   │    for id in due: atomic claim (Lua ZREM+SADD)         │
-   │      → transport.send(target, payload).await           │
-   │      → on Ok:  next_run = cron.next(now); ZADD back     │
-   │      → on Err: retry w/ backoff OR → DLQ               │
-   │    sleep(tick)                                         │
+    │    let due = ZRANGEBYSCORE schedule 0 now LIMIT 100    │
+    │    for id in due: atomic claim (Lua ZREM+SADD)         │
+    │      → if target.healthcheck == Unhealthy: requeue later │
+    │      → transport.send(target, payload).await           │
+    │      → on Ok:  next_run = cron.next(now); ZADD back     │
+    │      → on Err: retry w/ backoff OR → DLQ               │
+    │    sleep(tick)                                         │
    │  }                                                     │
    └────────────────────────────────────────────────────────┘
                                 │
@@ -69,7 +70,7 @@ scheduler/deliverer boundary holds.
 
 | Store | Role | What lives there |
 |-------|------|------------------|
-| **SQL** | Source of truth, audit | `task_specs`, `targets` (+ encrypted transport secrets), `task_executions` (history), `dead_letter` |
+| **SQL** | Source of truth, audit | `task_specs`, `targets` (+ transport secrets + healthcheck config), `task_executions` (history), `dead_letter`, `service_health` |
 | **Redis** | Hot scheduling state | `schedule` ZSET (id → next_run score), `processing` set (in-flight), per-target rate-limit counters, optional pub/sub for live invalidation, optional distributed lock |
 
 Why both: SQL gives you durability, queries, and audit ("what fired last
@@ -87,6 +88,11 @@ O(N) per tick; with 100k tasks you re-scan constantly and burn CPU.
 - Pop due tasks with an **atomic** Lua script (`ZREM` from `schedule` +
   `SADD` to `processing`), so multiple instances never double-fire the same
   tick (this is your idempotency primitive — §5).
+- **Healthcheck gate:** before sending, read `service_health` for the target.
+  If the target has a `healthcheck_url` and its latest status is `Unhealthy`,
+  skip the fire and requeue the task at `now + healthcheck_interval_seconds`.
+  The task stays alive in the schedule and will be re-evaluated after the next
+  probe. Targets with no `healthcheck_url` are implicitly healthy.
 - On successful delivery: `next_run = cron.next(now)`, `ZADD schedule`.
 - On failure: retry policy → re-add at `now + backoff`; exhausted → DLQ.
 
@@ -137,6 +143,26 @@ No factory-of-factories, no trait-object gymnastics beyond the `Arc<dyn>`.
 
 **v1 ships `HttpTransport` only.** gRPC/AMQP/Kafka/SMTP come when asked.
 
+### 2.5 Service healthchecks — a separate polling component
+
+Each target can optionally declare a `healthcheck_url`, an interval, and a
+timeout. A separate `taskmanager-healthchecker` binary (deployed as its own
+container) polls these URLs and writes the latest result into the
+`service_health` table:
+
+| Field | Meaning |
+|-------|---------|
+| `target_id` | FK to `targets` (CASCADE delete) |
+| `status` | `healthy` \| `unhealthy` \| `unknown` |
+| `status_code` | HTTP response code, if any |
+| `error` | Request/response error text |
+| `checked_at` | Last probe time |
+| `changed_at` | Last time `status` changed (useful for alerting) |
+
+The scheduler reads this row before firing. A target with no `healthcheck_url`
+is always considered healthy. The healthchecker is stateless and idempotent;
+running multiple instances is safe, though one is enough.
+
 > Rust learning note: the `Transport` trait is the textbook payoff. A trait
 > with multiple impls is exactly where Rust's type system feels good instead
 > of punitive. The one friction point: the scheduler will hold
@@ -165,6 +191,10 @@ No factory-of-factories, no trait-object gymnastics beyond the `Arc<dyn>`.
 
 ### v1 — high value/cost
 - **Health & readiness endpoints** (k8s/ops basic).
+- **Per-target service healthchecks.** A separate lightweight container polls
+  each target's optional `healthcheck_url`; the scheduler skips fires while the
+  target's service is `Unhealthy` and requeues them for the next poll. Keeps the
+  engine from hammering a known-broken downstream.
 - **Per-target rate limit + circuit breaker.** A buggy cron that fires every
   second must not DoS your downstream. Cheap to add, painful to retrofit.
 - **Multiple spec types:** cron expression, fixed interval, one-shot
@@ -288,7 +318,7 @@ These restructure the whole design. Pick deliberately:
 | 2 | Scheduler task: ZSET + atomic Lua claim + cron eval + HttpTransport + next_run recompute | A cron spec fires a webhook at the right time |
 | 3 | Reliability: retry+backoff, DLQ, idempotency header (`X-Fire-Id`), execution history | Failed webhook retried then dead-lettered; history queryable |
 | 4 | Ops: graceful shutdown (`CancellationToken`+`JoinSet`), readiness, metrics, HMAC signing | `/metrics` scraped; clean SIGTERM drain |
-| 5 | (on demand) tonic gRPC API, more transports, catch-up policies, per-target rate limit | Per the fork decisions above |
+| 5 | Extensions (on demand): service healthchecks, tonic gRPC API, more transports, catch-up policies, per-target rate limit | Per the fork decisions above |
 
 ---
 
@@ -306,6 +336,8 @@ These restructure the whole design. Pick deliberately:
 - Ship retry/backoff, DLQ, idempotency, tz-awareness, history in v1.
 - **Explicitly skip:** DAG/workflow engine, result callbacks, scripting in
   specs, HA (until >1 replica), GUI before CLI.
+- **Shipped extension:** per-target service healthchecks with a separate
+  `taskmanager-healthchecker` container and scheduler skip/requeue behavior.
 - Lock the 5 forks in §7 before writing Phase 0.
 
 **Next step:** answer the forks in §7, then I scaffold Phase 0 in

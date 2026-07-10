@@ -12,10 +12,39 @@
 |-------|--------|
 | Phase 0 | ✅ Skeleton |
 | Phase 1 | ✅ Spec CRUD API + persistence |
-| Phase 2 | ⬜ Scheduler (ZSET + Lua claim + HttpTransport) |
-| Phase 3 | ⬜ Reliability (retry/backoff, DLQ, idempotency, history) |
-| Phase 4 | ⬜ Ops (graceful shutdown, metrics, HMAC) |
-| Phase 5 | ⬜ Extensions (tonic gRPC, more transports, catch-up, rate limit) |
+| Phase 2 | ✅ Scheduler (ZSET + Lua claim + HttpTransport) |
+| Phase 3 | ✅ Reliability (retry/backoff, DLQ, idempotency, history) |
+| Phase 4 | ✅ Ops (metrics, HMAC, payload templating) |
+| Phase 5 | ✅ Healthcheck extension (separate `taskmanager-healthchecker` container, per-target `healthcheck_url`, scheduler skip-when-unhealthy) |
+
+---
+
+## Extension: Per-Target Service Healthcheck ✅ DONE
+
+A separate container polls each target's optional `healthcheck_url` and the
+scheduler skips fires while the service is unhealthy, requeueing at the next
+poll interval.
+
+- [x] Migration `0004_service_health.sql`: `healthcheck_url`,
+      `healthcheck_interval_seconds`, `healthcheck_timeout_seconds` on
+      `targets`; new `service_health` table.
+- [x] Models: `HealthStatus` enum + `ServiceHealth` row; healthcheck fields on
+      `Target`.
+- [x] Storage: `storage::health` repository (`upsert`, `get`,
+      `is_healthy`, `set_unknown`, `list_targets_with_healthchecks`).
+- [x] Healthchecker binary `src/bin/healthchecker.rs` polls all targets with
+      `healthcheck_url` every 5 s and writes `service_health`.
+- [x] Cargo binary `taskmanager-healthchecker` + `Dockerfile.healthchecker` +
+      `docker-compose.yml` service.
+- [x] Scheduler checks target health before firing; unhealthy → skip +
+      requeue at `now + healthcheck_interval_seconds`; no `dead_letter`/
+      retry exhaustion. Targets with no healthcheck are implicitly healthy.
+- [x] API: healthcheck fields accepted on `POST /v1/targets`; `GET
+      /v1/targets/:id/health` returns current `ServiceHealth`.
+- [x] Scheduler integration tests: fires when healthy, skips + requeues when
+      unhealthy.
+
+**Definition of Done:** Unhealthy service → no fires; healthy service → fires. ✅
 
 ---
 
@@ -70,42 +99,84 @@ These were decided before any implementation and govern every phase below.
 
 ---
 
-### Phase 2 — Scheduler (ZSET + Lua Claim + HttpTransport) ⬜ NOT STARTED
+### Phase 2 — Scheduler (ZSET + Lua Claim + HttpTransport) ✅ DONE
 
-- [ ] Background tokio task running the scheduler loop
-- [ ] On boot: seed Redis ZSET from `task_specs.next_run WHERE status='active'`
-- [ ] Atomic Lua claim: `ZREM` from `schedule` + `SADD` to `processing` (DESIGN §2.2)
-- [ ] On successful delivery: recompute `next_run`, `ZADD` back to schedule
-- [ ] On failure: retry with backoff, or DLQ on exhaustion
-- [ ] `Transport` trait + `HttpTransport` v1 (webhook with timeout, headers)
-- [ ] Catch-up policy wired: `run_missed | skip | run_once` (DESIGN §3)
-- [ ] Graceful shutdown: `CancellationToken` + `JoinSet` drain (DESIGN §3)
+- [x] Background tokio task running the scheduler loop (`src/scheduler/mod.rs`)
+- [x] On boot: seed Redis ZSET from `task_specs.next_run WHERE status='active'`
+      (idempotent `DEL` + rebuild; SQL is source of truth, DESIGN §2.1)
+- [x] Atomic Lua claim: `ZREM` from `schedule` + `SADD` to `processing`
+      (`src/scheduler/lua.rs`, DESIGN §2.2)
+- [x] On successful delivery: recompute `next_run` (cadence from the *scheduled*
+      fire time, no drift), `ZADD` back + SQL sync (version-gated)
+- [x] On failure: retry with exponential backoff + jitter, honoring
+      `max_attempts`; on exhaustion, drop from schedule (DLQ table is Phase 3)
+- [x] `Transport` trait + `HttpTransport` v1 (webhook POST, timeout, headers)
+      (`src/transport/`, DESIGN §2.4)
+- [x] Catch-up policy wired: `run_missed | skip | run_once` (DESIGN §3)
+- [x] Hot-reload: every API mutation mirrors into the Redis ZSET so scheduling
+      changes take effect without a restart (DESIGN §2.3)
+- [x] Graceful shutdown: shared `CancellationToken` + `JoinSet` drain, bounded
+      by `SHUTDOWN_TIMEOUT_MS` (DESIGN §3)
+- [x] Integration tests (4): boot-seed fire, hot-reload fire, atomic-claim
+      exclusivity, retry-then-exhaust on 5xx
 
-**Definition of Done:** A cron spec fires a webhook at the right time.
+**Definition of Done:** A cron spec fires a webhook at the right time. ✅
+
+> **Scope notes** (what Phase 2 deliberately leaves to later phases): the
+> `dead_letter` table + `task_executions` history + `X-Fire-Id` idempotency
+> header land in **Phase 3**; on exhaustion the task is logged + dropped for
+> now (clean seam at `finalize_drop`). Webhook HMAC-SHA256 signing, payload
+> `{{ scheduled_time }}` templating, the Prometheus `/metrics` endpoint, and
+> readiness reflecting scheduler health land in **Phase 4** (the
+> `HttpTransport` already receives the full `Target`, so signing is a localized
+> add). Full catch-up semantics after extended downtime is a **Phase 5** item.
 
 ---
 
-### Phase 3 — Reliability ⬜ NOT STARTED
+### Phase 3 — Reliability ✅ DONE
 
-- [ ] Retry with exponential backoff + jitter, per-task max attempts
-- [ ] Dead-letter table (`dead_letter`) on exhaustion
-- [ ] Idempotency header `X-Fire-Id: <task_id>:<scheduled_fire_time>` (DESIGN §5)
-- [ ] Execution history table (`task_executions`) with status, attempts, latency, response code, last error
-- [ ] DLQ query endpoint (`GET /v1/dead_letter`)
+- [x] Retry with exponential backoff + jitter, per-task max attempts (backfilled from Phase 2)
+- [x] Dead-letter table (`dead_letter`) on exhaustion + terminal failure
+- [x] Idempotency header `X-Fire-Id: <task_id>:<scheduled_fire_time>` (DESIGN §5)
+- [x] Execution history table (`task_executions`) with status, attempt, latency, response code, error
+- [x] DLQ query endpoint (`GET /v1/dead_letter`)
+- [x] Spec execution-history endpoint (`GET /v1/specs/:id/executions`)
 
-**Definition of Done:** Failed webhook retried then dead-lettered; history queryable.
+**Definition of Done:** Failed webhook retried then dead-lettered; history queryable. ✅
 
+**Key seams:**
+- Migration `0003_reliability.sql` adds `task_executions` + `dead_letter` tables.
+- `fire_state::bump_attempt` now returns the *stable* `fire_at` (original ZSET score)
+  via `HSETNX`, so `X-Fire-Id` is identical across retries of the same logical fire.
+- Every transport outcome writes a `task_executions` row best-effort (auditable but
+  never blocking).
+- Exhaustion writes one `dead_letter` row, then drops the task from the schedule.
+- New queries are captured in `.sqlx/` for CI builds.
 ---
 
-### Phase 4 — Ops ⬜ NOT STARTED
+### Phase 4 — Ops ✅ DONE
 
-- [ ] Graceful shutdown: stop scheduling, drain in-flight, then exit
-- [ ] Readiness reflects scheduler health (not just DB/Redis)
-- [ ] Prometheus `/metrics` endpoint (fires/s, failures/s, schedule-lag, queue depth, per-transport latency)
-- [ ] Webhook HMAC-SHA256 signature using target `secret_hmac` (DESIGN §3)
-- [ ] Payload template substitution: `{{ scheduled_time }}` minimal templating
+- [x] Graceful shutdown: stop scheduling, drain in-flight, then exit
+      (framework existed; readiness now reflects scheduler health)
+- [x] Readiness reflects scheduler health (`/readyz` includes scheduler component)
+- [x] Prometheus `/metrics` endpoint:
+      `taskmanager_fires_total{transport,status}`,
+      `taskmanager_schedule_lag_seconds`,
+      `taskmanager_queue_depth`,
+      `taskmanager_fire_latency_seconds{transport}`
+- [x] Webhook HMAC-SHA256 signature using target `secret_hmac`
+      (header `X-Signature: sha256=<hex>`)
+- [x] Payload template substitution: `{{ scheduled_time }}` → RFC3339 UTC time
 
-**Definition of Done:** `/metrics` scraped; clean SIGTERM drain.
+**Definition of Done:** `/metrics` scraped; clean SIGTERM drain. ✅
+
+**Key seams:**
+- `src/metrics.rs` owns the Prometheus registry + metric helpers.
+- `src/state.rs` gains `SchedulerHealth` (healthy flag + last tick) and `Metrics`.
+- Scheduler updates gauges every tick and observes fire outcomes.
+- `HttpTransport` renders payload templates before serializing, then signs the
+  exact bytes with HMAC-SHA256 if `secret_hmac` is set.
+- `GET /metrics` and scheduler-aware `/readyz` are live.
 
 ---
 
@@ -132,4 +203,6 @@ These were decided before any implementation and govern every phase below.
 
 ---
 
-> Next actionable work: pick up Phase 2 (scheduler loop + ZSET + HttpTransport).
+> Next actionable work: pick up Phase 5 — tonic gRPC API, additional
+> transports, per-target rate limiting, catch-up policies fully exercised,
+> multi-tenancy/RBAC, or CLI commands as needed.

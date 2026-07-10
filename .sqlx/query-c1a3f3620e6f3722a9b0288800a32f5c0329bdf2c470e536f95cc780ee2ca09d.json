@@ -1,0 +1,56 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO service_health (target_id, status, status_code, error, checked_at, changed_at)\n        VALUES ($1, $2, $3, $4, $5, NOW())\n        ON CONFLICT (target_id) DO UPDATE SET\n            status        = EXCLUDED.status,\n            status_code   = EXCLUDED.status_code,\n            error         = EXCLUDED.error,\n            checked_at    = EXCLUDED.checked_at,\n            changed_at    = CASE\n                                WHEN service_health.status IS DISTINCT FROM EXCLUDED.status\n                                THEN NOW()\n                                ELSE service_health.changed_at\n                            END\n        RETURNING\n            target_id, status AS \"status: HealthStatus\",\n            status_code, error, checked_at, changed_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "target_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "status: HealthStatus",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 2,
+        "name": "status_code",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 3,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 4,
+        "name": "checked_at",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 5,
+        "name": "changed_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Text",
+        "Int4",
+        "Text",
+        "Timestamptz"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      true,
+      true,
+      false,
+      false
+    ]
+  },
+  "hash": "c1a3f3620e6f3722a9b0288800a32f5c0329bdf2c470e536f95cc780ee2ca09d"
+}

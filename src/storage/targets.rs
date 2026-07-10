@@ -11,6 +11,7 @@ use crate::models::Target;
 
 /// Insert a new target. A duplicate `name` violates the unique constraint
 /// and is mapped to `Conflict` (409) by the error layer.
+#[allow(clippy::too_many_arguments)]
 pub async fn insert(
     pool: &PgPool,
     name: &str,
@@ -18,21 +19,31 @@ pub async fn insert(
     url: &str,
     secret_hmac: Option<&str>,
     headers: &serde_json::Value,
+    healthcheck_url: Option<&str>,
+    healthcheck_interval_seconds: i32,
+    healthcheck_timeout_seconds: i32,
 ) -> AppResult<Target> {
     let target = sqlx::query_as!(
         Target,
         r#"
-        INSERT INTO targets (name, transport, url, secret_hmac, headers)
-        VALUES ($1, $2, $3, $4, $5)
+        INSERT INTO targets (
+            name, transport, url, secret_hmac, headers,
+            healthcheck_url, healthcheck_interval_seconds, healthcheck_timeout_seconds
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
         RETURNING
             id, name, transport, url, secret_hmac, headers,
-            created_at, updated_at
+            healthcheck_url, healthcheck_interval_seconds,
+            healthcheck_timeout_seconds, created_at, updated_at
         "#,
         name,
         transport,
         url,
         secret_hmac,
         headers,
+        healthcheck_url,
+        healthcheck_interval_seconds,
+        healthcheck_timeout_seconds,
     )
     .fetch_one(pool)
     .await?;
@@ -43,7 +54,10 @@ pub async fn get(pool: &PgPool, id: uuid::Uuid) -> AppResult<Target> {
     let target = sqlx::query_as!(
         Target,
         r#"
-        SELECT id, name, transport, url, secret_hmac, headers, created_at, updated_at
+        SELECT
+            id, name, transport, url, secret_hmac, headers,
+            healthcheck_url, healthcheck_interval_seconds,
+            healthcheck_timeout_seconds, created_at, updated_at
         FROM targets
         WHERE id = $1
         "#,
@@ -58,7 +72,10 @@ pub async fn list(pool: &PgPool, limit: i64, offset: i64) -> AppResult<Vec<Targe
     let targets = sqlx::query_as!(
         Target,
         r#"
-        SELECT id, name, transport, url, secret_hmac, headers, created_at, updated_at
+        SELECT
+            id, name, transport, url, secret_hmac, headers,
+            healthcheck_url, healthcheck_interval_seconds,
+            healthcheck_timeout_seconds, created_at, updated_at
         FROM targets
         ORDER BY created_at DESC, id DESC
         LIMIT $1 OFFSET $2

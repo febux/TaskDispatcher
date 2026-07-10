@@ -67,6 +67,23 @@ services:
       start_period: 5s
     restart: unless-stopped
 
+  healthchecker:
+    build:
+      context: .
+      dockerfile: Dockerfile.healthchecker
+    container_name: taskmanager-healthchecker
+    environment:
+      DATABASE_URL: postgres://postgres:postgres@postgres:5432/taskmanager
+      REDIS_URL: redis://redis:6379
+      LOG_FORMAT: json
+      RUST_LOG: info,taskmanager=info,sqlx=warn,redis=warn
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    restart: unless-stopped
+
 volumes:
   pg_data:
   redis_data:

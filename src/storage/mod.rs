@@ -1,12 +1,16 @@
 //! Storage adapters.
 //!
 //! - `postgres` (sqlx): source of truth (`targets`, `task_specs`,
-//!   `task_executions`, `dead_letter` in later phases).
+//!   `task_executions`, `dead_letter`).
 //! - `redis`: derived scheduling state (ZSET, processing set,
 //!   rate-limit counters). See ../DESIGN.md §2.1.
 //! - `specs` / `targets`: typed repositories over compile-time-checked
 //!   sqlx queries (DESIGN §6).
+//! - `executions` / `dead_letter`: Phase 3 audit repositories (DESIGN §3).
 
+pub mod dead_letter;
+pub mod executions;
+pub mod health;
 pub mod postgres;
 pub mod redis;
 pub mod specs;

@@ -1,0 +1,76 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        INSERT INTO task_executions (\n            task_id, scheduled_fire_time, attempt, status, latency_ms, response_code, error\n        )\n        VALUES ($1, $2, $3, $4, $5, $6, $7)\n        RETURNING\n            id, task_id, scheduled_fire_time, attempt,\n            status         AS \"status: ExecutionStatus\",\n            latency_ms, response_code, error, created_at\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "task_id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 2,
+        "name": "scheduled_fire_time",
+        "type_info": "Timestamptz"
+      },
+      {
+        "ordinal": 3,
+        "name": "attempt",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 4,
+        "name": "status: ExecutionStatus",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 5,
+        "name": "latency_ms",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 6,
+        "name": "response_code",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 7,
+        "name": "error",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 8,
+        "name": "created_at",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Timestamptz",
+        "Int4",
+        "Text",
+        "Int4",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      false,
+      false,
+      true,
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "153fb6df18e7dc6c7e991488dd385f1407177071ca09efb58461d5d797abe4e7"
+}

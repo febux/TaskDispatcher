@@ -39,13 +39,20 @@ async fn setup() -> Option<TestEnv> {
     let redis = storage::connect_redis(&redis_url).await.expect("redis connect");
 
     // Wipe both tables; CASCADE handles the FK from task_specs.
-    sqlx::query("TRUNCATE task_specs, targets RESTART IDENTITY CASCADE")
+    sqlx::query("TRUNCATE dead_letter, task_executions, task_specs, targets RESTART IDENTITY CASCADE")
         .execute(&pg)
         .await
         .expect("truncate");
 
+    let metrics = taskmanager::Metrics::new();
+    let health = taskmanager::SchedulerHealth::new(std::time::Duration::from_millis(250));
     Some(TestEnv {
-        state: AppState { pg, redis },
+        state: AppState {
+            pg,
+            redis,
+            scheduler_health: health,
+            metrics,
+        },
         _guard: guard,
     })
 }

@@ -13,7 +13,7 @@ use serde::Deserialize;
 use uuid::Uuid;
 
 use crate::error::{AppError, AppResult};
-use crate::models::Target;
+use crate::models::{ServiceHealth, Target};
 use crate::routes::pagination::Pagination;
 use crate::state::AppState;
 use crate::storage;
@@ -28,6 +28,7 @@ pub fn router() -> Router<AppState> {
             "/v1/targets/:id",
             axum::routing::get(get).delete(delete),
         )
+        .route("/v1/targets/:id/health", axum::routing::get(health))
 }
 
 #[derive(Debug, Deserialize)]
@@ -43,6 +44,17 @@ pub struct CreateTargetRequest {
     /// Extra transport headers. Defaults to `{}`.
     #[serde(default)]
     pub headers: Option<serde_json::Value>,
+    /// Optional external-service healthcheck URL. When set, the separate
+    /// `taskmanager-healthchecker` service polls it and the scheduler skips
+    /// fires while the service is unhealthy.
+    #[serde(default)]
+    pub healthcheck_url: Option<String>,
+    /// Seconds between healthchecker polls. Defaults to 30.
+    #[serde(default)]
+    pub healthcheck_interval_seconds: Option<i32>,
+    /// Healthcheck request timeout in seconds. Defaults to 5.
+    #[serde(default)]
+    pub healthcheck_timeout_seconds: Option<i32>,
 }
 
 async fn create(
@@ -60,6 +72,16 @@ async fn create(
     let headers = req.headers.unwrap_or_else(|| serde_json::json!({}));
     validate_json_object(&headers, "headers")?;
 
+    let hc_url = req
+        .healthcheck_url
+        .as_deref()
+        .filter(|s| !s.trim().is_empty());
+    if let Some(u) = hc_url {
+        validate_url(u)?;
+    }
+    let hc_interval = req.healthcheck_interval_seconds.unwrap_or(30).max(1);
+    let hc_timeout = req.healthcheck_timeout_seconds.unwrap_or(5).max(1);
+
     let target = storage::targets::insert(
         &state.pg,
         req.name.trim(),
@@ -67,6 +89,9 @@ async fn create(
         req.url.trim(),
         req.secret_hmac.as_deref().map(str::trim),
         &headers,
+        hc_url.map(str::trim),
+        hc_interval,
+        hc_timeout,
     )
     .await?;
 
@@ -85,6 +110,12 @@ async fn list(
 async fn get(State(state): State<AppState>, Path(id): Path<Uuid>) -> AppResult<Json<Target>> {
     let target = storage::targets::get(&state.pg, id).await?;
     Ok(Json(target))
+}
+
+async fn health(State(state): State<AppState>, Path(id): Path<Uuid>) -> AppResult<Json<ServiceHealth>> {
+    let _ = storage::targets::get(&state.pg, id).await?; // 404 if target missing
+    let row = storage::health::get(&state.pg, id).await?;
+    Ok(Json(row))
 }
 
 async fn delete(State(state): State<AppState>, Path(id): Path<Uuid>) -> AppResult<StatusCode> {

@@ -2,8 +2,8 @@
 //!
 //! - `GET /healthz`: liveness — the process is up and serving. Requires
 //!   no state, so it can be tested in isolation without DB or Redis.
-//! - `GET /readyz`: readiness — both Postgres and Redis are reachable.
-//!   Returns 503 with a JSON breakdown if either dependency is down.
+//! - `GET /readyz`: readiness — Postgres, Redis, and the scheduler are healthy.
+//!   Returns 503 with a JSON breakdown if any component is down.
 
 use std::time::Instant;
 
@@ -37,6 +37,7 @@ struct Readiness {
     status: &'static str,
     postgres: ComponentStatus,
     redis: ComponentStatus,
+    scheduler: ComponentStatus,
 }
 
 #[derive(Serialize)]
@@ -58,12 +59,15 @@ async fn readiness(State(state): State<AppState>) -> Response {
     })
     .await;
 
-    let ok = pg.ok && redis.ok;
+    let scheduler = check_scheduler(&state).await;
+
+    let ok = pg.ok && redis.ok && scheduler.ok;
     let status = if ok { "ok" } else { "degraded" };
     let body = Json(Readiness {
         status,
         postgres: pg,
         redis,
+        scheduler,
     });
 
     let code = if ok {
@@ -72,6 +76,23 @@ async fn readiness(State(state): State<AppState>) -> Response {
         StatusCode::SERVICE_UNAVAILABLE
     };
     (code, body).into_response()
+}
+
+async fn check_scheduler(state: &AppState) -> ComponentStatus {
+    let start = Instant::now();
+    if state.scheduler_health.is_ready().await {
+        ComponentStatus {
+            ok: true,
+            latency_ms: start.elapsed().as_millis() as u64,
+            error: None,
+        }
+    } else {
+        ComponentStatus {
+            ok: false,
+            latency_ms: start.elapsed().as_millis() as u64,
+            error: Some("scheduler not running or missed ticks".into()),
+        }
+    }
 }
 
 /// Time a dependency probe and normalize the result into a `ComponentStatus`.

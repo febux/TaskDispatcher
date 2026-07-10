@@ -1,0 +1,26 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "\n        SELECT id, next_run\n        FROM task_specs\n        WHERE status = 'active' AND next_run IS NOT NULL\n        ORDER BY next_run ASC\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id",
+        "type_info": "Uuid"
+      },
+      {
+        "ordinal": 1,
+        "name": "next_run",
+        "type_info": "Timestamptz"
+      }
+    ],
+    "parameters": {
+      "Left": []
+    },
+    "nullable": [
+      false,
+      true
+    ]
+  },
+  "hash": "57f353e2fdd7249c5d0a11bf3a686a84aa727d2e8eab4ef3eadb37e866c2d541"
+}

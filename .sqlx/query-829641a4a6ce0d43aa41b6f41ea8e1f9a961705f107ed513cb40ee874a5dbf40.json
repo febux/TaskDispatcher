@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n        SELECT id, name, transport, url, secret_hmac, headers, created_at, updated_at\n        FROM targets\n        ORDER BY created_at DESC, id DESC\n        LIMIT $1 OFFSET $2\n        ",
+  "query": "\n        SELECT\n            id, name, transport, url, secret_hmac, headers,\n            healthcheck_url, healthcheck_interval_seconds,\n            healthcheck_timeout_seconds, created_at, updated_at\n        FROM targets\n        ORDER BY created_at DESC, id DESC\n        LIMIT $1 OFFSET $2\n        ",
   "describe": {
     "columns": [
       {
@@ -35,11 +35,26 @@
       },
       {
         "ordinal": 6,
+        "name": "healthcheck_url",
+        "type_info": "Text"
+      },
+      {
+        "ordinal": 7,
+        "name": "healthcheck_interval_seconds",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 8,
+        "name": "healthcheck_timeout_seconds",
+        "type_info": "Int4"
+      },
+      {
+        "ordinal": 9,
         "name": "created_at",
         "type_info": "Timestamptz"
       },
       {
-        "ordinal": 7,
+        "ordinal": 10,
         "name": "updated_at",
         "type_info": "Timestamptz"
       }
@@ -57,9 +72,12 @@
       false,
       true,
       false,
+      true,
+      false,
+      false,
       false,
       false
     ]
   },
-  "hash": "a8afe6fec2592bd2a83f4aa4494a5ac3b09b67b9591c9e0b7977e45d3f72b442"
+  "hash": "829641a4a6ce0d43aa41b6f41ea8e1f9a961705f107ed513cb40ee874a5dbf40"
 }
